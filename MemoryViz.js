@@ -1153,6 +1153,7 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries) {
   return {
     max_size,
     peak_timestep,
+    peak_alloc_events,
     allocations_over_time: data,
     max_at_time,
     summarized_mem,
@@ -1456,6 +1457,20 @@ function create_trace_view(
   d.append('label').text(
     `Detail: ${max_entries} of ${data.elements_length} entries`,
   );
+  d.append('button')
+    .text(`Download peak allocs JSON (${data.peak_alloc_events.length} blocks)`)
+    .attr('style', 'margin-left: 10px')
+    .on('click', () => {
+      const json = JSON.stringify(data.peak_alloc_events, (_k, v) =>
+        typeof v === 'bigint' ? v.toString() : v, 2);
+      const blob = new Blob([json], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'peak_alloc_events.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
 
   const grid_container = dst
     .append('div')
