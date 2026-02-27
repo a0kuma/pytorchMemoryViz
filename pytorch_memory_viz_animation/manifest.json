@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "PyTorch Memory Viz Animator",
+  "version": "1.0.0",
+  "description": "Adds a play button to pytorch.org/memory_viz to auto-click through timeline frames.",
+  "content_scripts": [
+    {
+      "matches": ["https://docs.pytorch.org/memory_viz*", "https://pytorch.org/memory_viz*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
