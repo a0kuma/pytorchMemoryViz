@@ -1002,6 +1002,7 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries) {
   const current_data = [];
   const data = [];
   let max_size = 0;
+  let peak_elem = null;
 
   let total_mem = 0;
   let total_summarized_mem = 0;
@@ -1107,7 +1108,11 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries) {
       }
       total_mem -= size;
     }
-    max_size = Math.max(total_mem + total_summarized_mem, max_size);
+    const current_total = total_mem + total_summarized_mem;
+    if (current_total > max_size) {
+      max_size = current_total;
+      peak_elem = elem;
+    }
   }
 
   for (const elem of current_data) {
@@ -1116,8 +1121,38 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries) {
   }
   data.push(summarized_mem);
 
+  // Find the timestep where peak memory occurred
+  let peak_timestep = 0;
+  for (let i = 1; i < max_at_time.length; i++) {
+    if (max_at_time[i] > max_at_time[peak_timestep]) {
+      peak_timestep = i;
+    }
+  }
+
+  // Log the time of peak memory usage
+  if (peak_elem !== null) {
+    const peak_event = elements[peak_elem];
+    const peak_time_us = peak_event.time_us;
+    if (peak_time_us != null) {
+      const peak_date = new Date(peak_time_us / 1000);
+      console.log(`Peak active memory: ${formatSize(max_size)} at ${peak_date.toISOString()} (${peak_date.toLocaleString()})`);
+    } else {
+      console.log(`Peak active memory: ${formatSize(max_size)} (no timestamp available)`);
+    }
+  }
+
+  // Find all allocations active at the peak timestep (blocks the red dashed line passes through)
+  const peak_allocs = data.filter(d => {
+    if (d.elem === 'summarized') return false;
+    const ts = d.timesteps;
+    return ts.length >= 2 && ts[0] <= peak_timestep && peak_timestep <= ts[ts.length - 1];
+  });
+  const peak_alloc_events = peak_allocs.map(d => elements[d.elem]);
+  console.log(`Blocks at peak memory (red dashed line): ${peak_allocs.length}`, peak_alloc_events);
+
   return {
     max_size,
+    peak_timestep,
     allocations_over_time: data,
     max_at_time,
     summarized_mem,
@@ -1214,6 +1249,21 @@ function MemoryPlot(
     .append('polygon')
     .attr('points', format_points)
     .attr('fill', d => colors[d.color % colors.length]);
+
+  // Draw vertical line at peak memory timestep
+  if (data.peak_timestep != null && data.max_at_time.length > 0) {
+    scrub_group
+      .append('line')
+      .attr('x1', xscale(data.peak_timestep))
+      .attr('y1', 0)
+      .attr('x2', xscale(data.peak_timestep))
+      .attr('y2', plot_height)
+      .attr('stroke', 'red')
+      .attr('stroke-width', 2)
+      .attr('vector-effect', 'non-scaling-stroke')
+      .attr('stroke-dasharray', '6,3')
+      .attr('pointer-events', 'none');
+  }
 
   const axis = plot_coordinate_space.append('g').call(yaxis);
 
@@ -1386,7 +1436,7 @@ function create_trace_view(
   snapshot,
   device,
   plot_segments = false,
-  max_entries = 15000,
+  max_entries = Infinity,
 ) {
   const left_pad = 70;
   const data = process_alloc_data(snapshot, device, plot_segments, max_entries);
