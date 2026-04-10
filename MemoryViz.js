@@ -1147,6 +1147,10 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries) {
     const ts = d.timesteps;
     return ts.length >= 2 && ts[0] <= peak_timestep && peak_timestep <= ts[ts.length - 1];
   });
+  console.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[elements]~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+  console.log(elements);
+  console.log("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[peak_allocs]~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~");
+  console.log(peak_allocs);
   const peak_alloc_events = peak_allocs.map(d => elements[d.elem]);
   console.log(`Blocks at peak memory (red dashed line): ${peak_allocs.length}`, peak_alloc_events);
 
