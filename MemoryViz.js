@@ -905,6 +905,24 @@ function MemoryPlot(
     .attr('stroke-width', d => typeof d.elem === 'string' && d.elem.startsWith('pool:') ? 3 : null)
     .attr('vector-effect', d => typeof d.elem === 'string' && d.elem.startsWith('pool:') ? 'non-scaling-stroke' : null);
 
+  // Restored from main: red dashed vertical line marking the timestep where
+  // active memory peaked. Uses the peak_timestep field that PR #4 brought
+  // back to process_alloc_data's return value.
+  if (data.peak_timestep != null && data.max_at_time.length > 0) {
+    scrub_group
+      .append('line')
+      .attr('class', 'peak-memory-line')
+      .attr('x1', xscale(data.peak_timestep))
+      .attr('y1', 0)
+      .attr('x2', xscale(data.peak_timestep))
+      .attr('y2', plot_height)
+      .attr('stroke', 'red')
+      .attr('stroke-width', 2)
+      .attr('vector-effect', 'non-scaling-stroke')
+      .attr('stroke-dasharray', '6,3')
+      .attr('pointer-events', 'none');
+  }
+
   const axis = plot_coordinate_space.append('g').call(yaxis);
 
   function handleZoom(event) {
@@ -1137,6 +1155,29 @@ function create_trace_view(
   d.append('label').text(
     `Detail: ${max_entries} of ${data.elements_length} entries`,
   );
+
+  // Restored from main: download the blocks active at peak memory as JSON.
+  // Uses peak_alloc_events restored to process_alloc_data's return value.
+  if (Array.isArray(data.peak_alloc_events) && data.peak_alloc_events.length > 0) {
+    d.append('button')
+      .attr('class', 'peak-alloc-download')
+      .attr('style', 'margin-left: 10px')
+      .text(`Download peak allocs JSON (${data.peak_alloc_events.length} blocks)`)
+      .on('click', () => {
+        const json = JSON.stringify(
+          data.peak_alloc_events,
+          (_k, v) => (typeof v === 'bigint' ? v.toString() : v),
+          2,
+        );
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'peak_alloc_events.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+  }
 
   d.append('span').text('  |  ');
   const search_input = d.append('input')
