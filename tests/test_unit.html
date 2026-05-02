@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>process_alloc_data peak-tracking unit test</title>
+</head>
+<body>
+  <h1>Unit test: process_alloc_data restores peak_timestep / peak_alloc_events</h1>
+  <pre id="status">running…</pre>
+  <pre id="result"></pre>
+  <script type="module">
+    import { process_alloc_data } from "../process_alloc_data.js";
+
+    window.__test = { console_logs: [], result: null, error: null };
+    const origLog = console.log;
+    console.log = (...args) => {
+      window.__test.console_logs.push(
+        args.map(a => typeof a === "string" ? a : (() => {
+          try { return JSON.stringify(a); } catch { return String(a); }
+        })()).join(" "),
+      );
+      origLog.apply(console, args);
+    };
+
+    try {
+      const snap = await fetch("./snapshot.json").then(r => r.json());
+      // Production flow always calls annotate_snapshot() first, which sets
+      // snapshot.categories. Without it, process_alloc_data crashes inside
+      // add_allocation when it reads snapshot.categories.length. Replicate
+      // the minimum of what annotate_snapshot would do for this test.
+      if (!Array.isArray(snap.categories)) {
+        snap.categories = [];
+        for (const trace of snap.device_traces || []) {
+          for (const t of trace || []) {
+            if (t && "category" in t && !snap.categories.includes(t.category)) {
+              snap.categories.push(t.category);
+            }
+          }
+        }
+      }
+      const device = 0;
+      const plot_segments = false;
+      const max_entries = 15000;
+      const out = process_alloc_data(snap, device, plot_segments, max_entries);
+      window.__test.result = {
+        max_size: out.max_size,
+        peak_timestep: out.peak_timestep,
+        peak_alloc_events_count: Array.isArray(out.peak_alloc_events) ? out.peak_alloc_events.length : null,
+        max_at_time_length: out.max_at_time?.length ?? null,
+        elements_length: out.elements_length,
+        has_context_for_id: typeof out.context_for_id === "function",
+        keys: Object.keys(out),
+      };
+      document.getElementById("status").textContent = "OK";
+      document.getElementById("result").textContent = JSON.stringify(window.__test.result, null, 2);
+    } catch (e) {
+      window.__test.error = e?.message || String(e);
+      window.__test.stack = e?.stack || "(no stack)";
+      document.getElementById("status").textContent = "ERROR";
+      document.getElementById("result").textContent = window.__test.error + "\n\n" + window.__test.stack;
+    } finally {
+      window.__pageReady = true;
+    }
+  </script>
+</body>
+</html>
