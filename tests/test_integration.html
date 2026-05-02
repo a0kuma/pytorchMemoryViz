@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MemoryViz end-to-end integration test</title>
+</head>
+<body>
+  <h1>Integration test: MemoryViz loads a real snapshot pickle</h1>
+  <pre id="status">loading MemoryViz module…</pre>
+  <div id="container"></div>
+  <script type="module">
+    window.__test = { console_logs: [], status: "init" };
+    const origLog = console.log;
+    console.log = (...args) => {
+      window.__test.console_logs.push(
+        args.map(a => typeof a === "string" ? a : (() => {
+          try { return JSON.stringify(a); } catch { return String(a); }
+        })()).join(" "),
+      );
+      origLog.apply(console, args);
+    };
+    const origErr = console.error;
+    console.error = (...args) => {
+      window.__test.console_logs.push("[ERR] " + args.map(String).join(" "));
+      origErr.apply(console, args);
+    };
+    window.addEventListener("error", (e) => {
+      window.__test.console_logs.push("[window.error] " + (e.message || String(e)));
+      window.__test.status = "error: " + (e.message || String(e));
+    });
+    window.addEventListener("unhandledrejection", (e) => {
+      window.__test.console_logs.push("[unhandledrejection] " + String(e.reason));
+    });
+
+    // Importing MemoryViz auto-creates its own d3-rendered file input that
+    // wires up the FileReader → finished_loading → unpickle_and_annotate
+    // chain (which is what calls annotate_snapshot, populating
+    // snapshot.categories before process_alloc_data runs).
+    await import("../MemoryViz.js");
+
+    // Wait one tick for d3 to insert the input, then surface it under a
+    // stable id so the Puppeteer runner can target it.
+    requestAnimationFrame(() => {
+      const inputs = document.querySelectorAll('input[type="file"]');
+      const memvizInput = inputs[inputs.length - 1];
+      if (memvizInput) {
+        memvizInput.id = "memvizFileInput";
+        document.getElementById("status").textContent = "ready — upload a pickle";
+        window.__test.status = "ready";
+      } else {
+        document.getElementById("status").textContent = "ERROR: MemoryViz did not create a file input";
+        window.__test.status = "error: no file input created";
+      }
+      window.__pageReady = true;
+    });
+
+    // When the user (or Puppeteer) uploads a file via the MemoryViz-created
+    // input, MemoryViz's own change handler fires. We just observe console
+    // output and flip status="done" once the "Peak active memory:" log fires
+    // (or after a generous timeout).
+    let doneTimer = null;
+    const origPush = window.__test.console_logs.push.bind(window.__test.console_logs);
+    window.__test.console_logs.push = function (...items) {
+      const ret = origPush(...items);
+      for (const item of items) {
+        if (typeof item === "string" && item.includes("Peak active memory:")) {
+          window.__test.status = "done";
+          document.getElementById("status").textContent = "done — peak log received";
+        }
+      }
+      return ret;
+    };
+  </script>
+</body>
+</html>

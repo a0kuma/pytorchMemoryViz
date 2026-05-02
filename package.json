@@ -1,0 +1,27 @@
+{
+  "name": "pytorchmemoryviz",
+  "version": "1.0.0",
+  "description": "from https://github.com/pytorch/pytorch.github.io/blob/site/memory_viz.html",
+  "main": "MemoryViz.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a0kuma/pytorchMemoryViz.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/a0kuma/pytorchMemoryViz/issues"
+  },
+  "homepage": "https://github.com/a0kuma/pytorchMemoryViz#readme",
+  "devDependencies": {
+    "puppeteer": "^24.42.0"
+  }
+}
