@@ -519,6 +519,11 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
   const current_data = []; // parallel array of visualization data objects
   const data = [];         // all data objects (including completed ones)
   let max_size = 0;
+  // Restored from main: track which element drove the peak so we can log the
+  // wall-clock time of peak memory and identify which blocks the red dashed
+  // "peak" line passes through. Lost in the cUZpARuPDATE refactor; PR #4
+  // brings it back without losing this branch's pool/private-pool features.
+  let peak_elem = null;
 
   let total_mem = 0;
   let total_summarized_mem = 0;
@@ -992,7 +997,11 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
         }
         delete pool_active_elems[elem];
       }
-      max_size = Math.max(total_mem + total_summarized_mem, max_size);
+      const _post_pool_total = total_mem + total_summarized_mem;
+      if (_post_pool_total > max_size) {
+        max_size = _post_pool_total;
+        peak_elem = elem;
+      }
       continue;
     }
 
@@ -1030,7 +1039,11 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
       }
       total_mem -= size;
     }
-    max_size = Math.max(total_mem + total_summarized_mem, max_size);
+    const _action_iter_total = total_mem + total_summarized_mem;
+    if (_action_iter_total > max_size) {
+      max_size = _action_iter_total;
+      peak_elem = elem;
+    }
   }
 
   // Process any remaining segment events after the last action
@@ -1041,6 +1054,10 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
     if (pool.reserved > pool.max && pool.envelope_data) {
       grow_pool_envelope(pool, se.pool_key, pool.reserved);
     }
+    // Post-action segment events: no individual `elem` to attribute to —
+    // peak_elem keeps whatever the last action that set it was. That's the
+    // same behaviour as main: the segment event is bookkeeping after the
+    // last alloc/free has driven the actual peak.
     max_size = Math.max(total_mem + total_summarized_mem, max_size);
     seg_event_idx++;
   }
@@ -1068,8 +1085,51 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
   }
   data.push(summarized_mem);
 
+  // Restored from main: locate the timestep where memory peaked, log the
+  // wall-clock time of the peak event, and collect the blocks active at the
+  // peak (the red dashed "peak" line that MemoryPlot draws passes through
+  // these). Lost when this module was split out of MemoryViz.js; brought
+  // back here without removing the new pool/private-pool features.
+  let peak_timestep = 0;
+  for (let i = 1; i < max_at_time.length; i++) {
+    if (max_at_time[i] > max_at_time[peak_timestep]) {
+      peak_timestep = i;
+    }
+  }
+
+  if (peak_elem !== null) {
+    const peak_event = elements[peak_elem];
+    const peak_time_us = peak_event?.time_us;
+    if (peak_time_us != null) {
+      const peak_date = new Date(peak_time_us / 1000);
+      console.log(
+        `Peak active memory: ${formatSize(max_size)} at ${peak_date.toISOString()} (${peak_date.toLocaleString()})`,
+      );
+    } else {
+      console.log(`Peak active memory: ${formatSize(max_size)} (no timestamp available)`);
+    }
+  } else {
+    console.log(`Peak active memory: ${formatSize(max_size)}`);
+  }
+
+  const peak_alloc_events = data
+    .filter(d => {
+      if (d.elem === 'summarized') return false;
+      const ts = d.timesteps;
+      return ts && ts.length >= 2 && ts[0] <= peak_timestep && peak_timestep <= ts[ts.length - 1];
+    })
+    .map(d => {
+      const ev = elements[d.elem];
+      if (ev) ev.elem = d.elem;
+      return ev;
+    })
+    .filter(Boolean);
+  console.log(`Blocks at peak memory (red dashed line): ${peak_alloc_events.length}`);
+
   return {
     max_size,
+    peak_timestep,
+    peak_alloc_events,
     allocations_over_time: data,
     max_at_time,
     summarized_mem,
