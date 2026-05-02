@@ -114,7 +114,20 @@ async function runIntegrationTest(browser, baseUrl) {
   if (!hasPeakLog) failures.push("missing 'Peak active memory:' console.log");
   const hasBlocksLog = result.console_logs.some(l => l.includes("Blocks at peak memory"));
   if (!hasBlocksLog) failures.push("missing 'Blocks at peak memory' console.log");
-  return { name: "integration (add_local_files end-to-end)", result, failures };
+
+  // PR #4 also restored two pieces of UI from main: the red dashed peak line
+  // in MemoryPlot, and the "Download peak allocs JSON" button in
+  // create_trace_view. Assert both DOM elements actually rendered.
+  const dom = result.dom || {};
+  if (!dom.peak_line_found) failures.push("missing red dashed peak line (.peak-memory-line) in MemoryPlot");
+  if (dom.peak_line_found && dom.peak_line_stroke !== "red") failures.push("peak line stroke is not 'red'");
+  if (dom.peak_line_found && dom.peak_line_dash !== "6,3") failures.push("peak line is not dashed (stroke-dasharray='6,3')");
+  if (!dom.download_button_found) failures.push("missing 'Download peak allocs JSON' button (button.peak-alloc-download)");
+  if (dom.download_button_found && !/Download peak allocs JSON/.test(dom.download_button_text || "")) {
+    failures.push("download button text is wrong: " + JSON.stringify(dom.download_button_text));
+  }
+
+  return { name: "integration (add_local_files end-to-end + UI)", result, failures };
 }
 
 async function main() {
@@ -144,6 +157,9 @@ async function main() {
     console.log(`\n${ok ? "✓" : "✗"} ${r.name}`);
     if (r.result?.result) {
       console.log("  result:", JSON.stringify(r.result.result));
+    }
+    if (r.result?.dom) {
+      console.log("  dom:   ", JSON.stringify(r.result.dom));
     }
     const peakLog = (r.result?.console_logs || []).filter(l =>
       l.includes("Peak active memory:") || l.includes("Blocks at peak memory"),

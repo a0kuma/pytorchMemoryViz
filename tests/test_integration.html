@@ -64,8 +64,23 @@
       const ret = origPush(...items);
       for (const item of items) {
         if (typeof item === "string" && item.includes("Peak active memory:")) {
-          window.__test.status = "done";
-          document.getElementById("status").textContent = "done — peak log received";
+          // Peak log fired → renderer should now have placed the red dashed
+          // line + the download button. Snapshot the DOM so the runner can
+          // assert without re-querying through Puppeteer.
+          requestAnimationFrame(() => {
+            const peakLine = document.querySelector(".peak-memory-line");
+            const dlButton = document.querySelector("button.peak-alloc-download");
+            window.__test.dom = {
+              peak_line_found: !!peakLine,
+              peak_line_stroke: peakLine?.getAttribute("stroke") ?? null,
+              peak_line_dash: peakLine?.getAttribute("stroke-dasharray") ?? null,
+              peak_line_x1: peakLine?.getAttribute("x1") ?? null,
+              download_button_found: !!dlButton,
+              download_button_text: dlButton?.textContent ?? null,
+            };
+            window.__test.status = "done";
+            document.getElementById("status").textContent = "done — peak log received";
+          });
         }
       }
       return ret;
