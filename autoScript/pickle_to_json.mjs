@@ -70,11 +70,8 @@ async function main() {
 
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
-  const RANDOM_BASE = 36;
-  const RANDOM_SLICE_START = 2;
-  const RANDOM_SLICE_END = 8;
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const randomSuffix = Math.random().toString(RANDOM_BASE).slice(RANDOM_SLICE_START, RANDOM_SLICE_END);
+  const randomSuffix = Math.random().toString(36).slice(2, 8);
   const downloadDir = path.join(scriptDir, '.downloads', `${Date.now()}-${randomSuffix}`);
   await fs.mkdir(downloadDir, { recursive: true });
 
@@ -85,7 +82,7 @@ async function main() {
 
   try {
     const page = await browser.newPage();
-    page.setDefaultTimeout(timeoutMs);
+    await page.setDefaultTimeout(timeoutMs);
 
     const cdp = await page.target().createCDPSession();
     await cdp.send('Page.setDownloadBehavior', {
