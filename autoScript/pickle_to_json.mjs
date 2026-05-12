@@ -8,12 +8,12 @@ import puppeteer from 'puppeteer';
 function parseArgs(argv) {
   const args = {};
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--input' || a === '-i') args.input = argv[++i];
-    else if (a === '--output' || a === '-o') args.output = argv[++i];
-    else if (a === '--url') args.url = argv[++i];
-    else if (a === '--timeout-ms') args.timeoutMs = Number(argv[++i]);
-    else if (a === '--help' || a === '-h') args.help = true;
+    const currentArg = argv[i];
+    if (currentArg === '--input' || currentArg === '-i') args.input = argv[++i];
+    else if (currentArg === '--output' || currentArg === '-o') args.output = argv[++i];
+    else if (currentArg === '--url') args.url = argv[++i];
+    else if (currentArg === '--timeout-ms') args.timeoutMs = Number(argv[++i]);
+    else if (currentArg === '--help' || currentArg === '-h') args.help = true;
   }
   return args;
 }
@@ -36,18 +36,18 @@ async function waitForDownloadedJson(dir, timeoutMs) {
     const jsonFiles = [];
     for (const e of entries) {
       if (!e.isFile() || !e.name.toLowerCase().endsWith('.json')) continue;
-      const p = path.join(dir, e.name);
-      const st = await fs.stat(p);
-      jsonFiles.push({ p, mtimeMs: st.mtimeMs, size: st.size });
+      const filePath = path.join(dir, e.name);
+      const st = await fs.stat(filePath);
+      jsonFiles.push({ filePath, mtimeMs: st.mtimeMs, size: st.size });
     }
 
     const stable = jsonFiles.filter(f => f.size > 0);
     if (stable.length > 0) {
       stable.sort((a, b) => b.mtimeMs - a.mtimeMs);
-      return stable[0].p;
+      return stable[0].filePath;
     }
 
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(resolve => setTimeout(resolve, 300));
   }
   throw new Error(`Timed out waiting for downloaded JSON in ${dir}`);
 }
@@ -70,8 +70,12 @@ async function main() {
 
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
 
+  const RANDOM_BASE = 36;
+  const RANDOM_SLICE_START = 2;
+  const RANDOM_SLICE_END = 8;
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const downloadDir = path.join(scriptDir, '.downloads', `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const randomSuffix = Math.random().toString(RANDOM_BASE).slice(RANDOM_SLICE_START, RANDOM_SLICE_END);
+  const downloadDir = path.join(scriptDir, '.downloads', `${Date.now()}-${randomSuffix}`);
   await fs.mkdir(downloadDir, { recursive: true });
 
   const browser = await puppeteer.launch({
