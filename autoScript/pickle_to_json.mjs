@@ -5,14 +5,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import puppeteer from 'puppeteer';
 
+const DEFAULT_TIMEOUT_MS = 120000;
+
 function parseArgs(argv) {
   const args = {};
+
+  const readValue = (flag, index) => {
+    if (index + 1 >= argv.length || argv[index + 1].startsWith('-')) {
+      throw new Error(`Missing value for ${flag}`);
+    }
+    return argv[index + 1];
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const currentArg = argv[i];
-    if (currentArg === '--input' || currentArg === '-i') args.input = argv[++i];
-    else if (currentArg === '--output' || currentArg === '-o') args.output = argv[++i];
-    else if (currentArg === '--url') args.url = argv[++i];
-    else if (currentArg === '--timeout-ms') args.timeoutMs = Number(argv[++i]);
+    if (currentArg === '--input' || currentArg === '-i') args.input = readValue(currentArg, i++);
+    else if (currentArg === '--output' || currentArg === '-o') args.output = readValue(currentArg, i++);
+    else if (currentArg === '--url') args.url = readValue(currentArg, i++);
+    else if (currentArg === '--timeout-ms') args.timeoutMs = Number(readValue(currentArg, i++));
     else if (currentArg === '--help' || currentArg === '-h') args.help = true;
   }
   return args;
@@ -25,7 +35,7 @@ function usage() {
     '',
     'Options:',
     '  --url <url>            Default: https://a0kuma.github.io/pytorchMemoryViz/',
-    '  --timeout-ms <number>  Default: 120000',
+    `  --timeout-ms <number>  Default: ${DEFAULT_TIMEOUT_MS}`,
   ].join('\n');
 }
 
@@ -62,7 +72,7 @@ async function main() {
   const inputPath = path.resolve(args.input);
   const outputPath = path.resolve(args.output);
   const targetUrl = args.url || 'https://a0kuma.github.io/pytorchMemoryViz/';
-  const timeoutMs = Number.isFinite(args.timeoutMs) && args.timeoutMs > 0 ? args.timeoutMs : 120000;
+  const timeoutMs = Number.isFinite(args.timeoutMs) && args.timeoutMs > 0 ? args.timeoutMs : DEFAULT_TIMEOUT_MS;
 
   if (!existsSync(inputPath)) {
     throw new Error(`Input file does not exist: ${inputPath}`);
