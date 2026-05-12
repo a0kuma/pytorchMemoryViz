@@ -60,10 +60,10 @@ async function waitForDownloadedJson(dir, timeoutMs) {
       jsonFiles.push({ filePath, mtimeMs: st.mtimeMs, size: st.size });
     }
 
-    const stable = jsonFiles.filter(f => f.size > 0);
-    if (stable.length > 0) {
-      stable.sort((a, b) => b.mtimeMs - a.mtimeMs);
-      return stable[0].filePath;
+    const nonEmptyJsonFiles = jsonFiles.filter(f => f.size > 0);
+    if (nonEmptyJsonFiles.length > 0) {
+      nonEmptyJsonFiles.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      return nonEmptyJsonFiles[0].filePath;
     }
 
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -117,14 +117,14 @@ async function main() {
     await fileInput.uploadFile(inputPath);
 
     await page.waitForSelector('input[type="range"]', { timeout: timeoutMs });
-    const sliderSet = await page.evaluate(() => {
+    const sliderUpdated = await page.evaluate(() => {
       const slider = document.querySelector('input[type="range"]');
       if (!slider) return false;
       slider.value = slider.max;
       slider.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     });
-    if (!sliderSet) throw new Error('Failed to set range slider value');
+    if (!sliderUpdated) throw new Error('Failed to set range slider value');
 
     await page.waitForSelector('button.peak-alloc-download', { timeout: timeoutMs });
     await page.click('button.peak-alloc-download');
