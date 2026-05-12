@@ -19,10 +19,19 @@ function parseArgs(argv) {
 
   for (let i = 0; i < argv.length; i++) {
     const currentArg = argv[i];
-    if (currentArg === '--input' || currentArg === '-i') args.input = readValue(currentArg, i++);
-    else if (currentArg === '--output' || currentArg === '-o') args.output = readValue(currentArg, i++);
-    else if (currentArg === '--url') args.url = readValue(currentArg, i++);
-    else if (currentArg === '--timeout-ms') args.timeoutMs = Number(readValue(currentArg, i++));
+    if (currentArg === '--input' || currentArg === '-i') {
+      args.input = readValue(currentArg, i);
+      i += 1;
+    } else if (currentArg === '--output' || currentArg === '-o') {
+      args.output = readValue(currentArg, i);
+      i += 1;
+    } else if (currentArg === '--url') {
+      args.url = readValue(currentArg, i);
+      i += 1;
+    } else if (currentArg === '--timeout-ms') {
+      args.timeoutMs = Number(readValue(currentArg, i));
+      i += 1;
+    }
     else if (currentArg === '--help' || currentArg === '-h') args.help = true;
   }
   return args;
@@ -108,12 +117,14 @@ async function main() {
     await fileInput.uploadFile(inputPath);
 
     await page.waitForSelector('input[type="range"]', { timeout: timeoutMs });
-    await page.evaluate(() => {
+    const sliderSet = await page.evaluate(() => {
       const slider = document.querySelector('input[type="range"]');
-      if (!slider) throw new Error('Range input not found');
+      if (!slider) return false;
       slider.value = slider.max;
       slider.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
     });
+    if (!sliderSet) throw new Error('Range input not found');
 
     await page.waitForSelector('button.peak-alloc-download', { timeout: timeoutMs });
     await page.click('button.peak-alloc-download');
