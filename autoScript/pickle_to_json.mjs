@@ -102,6 +102,13 @@ async function main() {
   try {
     const page = await browser.newPage();
     await page.setDefaultTimeout(timeoutMs);
+    page.on('console', (msg) => {
+      const location = msg.location();
+      const locationSuffix = location?.url
+        ? ` (${location.url}:${location.lineNumber}:${location.columnNumber})`
+        : '';
+      console.log(`[browser:${msg.type()}] ${msg.text()}${locationSuffix}`);
+    });
 
     const cdp = await page.target().createCDPSession();
     await cdp.send('Page.setDownloadBehavior', {

@@ -22,6 +22,6 @@
   },
   "homepage": "https://github.com/a0kuma/pytorchMemoryViz#readme",
   "devDependencies": {
-    "puppeteer": "^24.42.0"
+    "puppeteer": "^24.43.1"
   }
 }
