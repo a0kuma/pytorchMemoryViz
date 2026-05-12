@@ -124,7 +124,7 @@ async function main() {
       slider.dispatchEvent(new Event('change', { bubbles: true }));
       return true;
     });
-    if (!sliderSet) throw new Error('Range input not found');
+    if (!sliderSet) throw new Error('Failed to set range slider value');
 
     await page.waitForSelector('button.peak-alloc-download', { timeout: timeoutMs });
     await page.click('button.peak-alloc-download');
