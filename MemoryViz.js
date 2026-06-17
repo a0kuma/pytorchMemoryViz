@@ -1620,6 +1620,14 @@ const snapshot_to_loader = {};
 const snapshot_to_url = {};
 const selection_to_div = {};
 
+const DATA_PICKLE_MANIFEST_URL = './data/pickles.json';
+const GITHUB_DATA_API_URL =
+  'https://api.github.com/repos/a0kuma/pytorchMemoryViz/contents/data?ref=gh-pages';
+const FALLBACK_DATA_PICKLES = [
+  'data/memory_reports_20260617155040.pickle',
+  'data/memory_reports_20260617155442.pickle',
+];
+
 const style = `
 pre {
   margin: 0px;
@@ -1632,6 +1640,81 @@ html, body {
 body {
   display: flex;
   flex-direction: column;
+}
+.data-pickle-toggle {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 1000;
+  border: 0;
+  border-radius: 999px;
+  background: #111827;
+  color: #ffffff;
+  cursor: pointer;
+  font: 700 14px/1.2 sans-serif;
+  padding: 14px 18px;
+  box-shadow: 0 14px 34px rgba(17, 24, 39, 0.32);
+}
+.data-pickle-panel {
+  position: fixed;
+  right: 22px;
+  bottom: 78px;
+  z-index: 1000;
+  width: min(420px, calc(100vw - 44px));
+  max-height: min(520px, calc(100vh - 120px));
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 20px 55px rgba(17, 24, 39, 0.25);
+  color: #111827;
+  font: 14px/1.4 sans-serif;
+  padding: 14px;
+}
+.data-pickle-panel[data-open="true"] {
+  display: flex;
+}
+.data-pickle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 700;
+}
+.data-pickle-status {
+  color: #4b5563;
+  font-size: 12px;
+}
+.data-pickle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+.data-pickle-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  color: #111827;
+  cursor: pointer;
+  font: 13px/1.35 monospace;
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  text-align: left;
+}
+.data-pickle-item:hover {
+  background: #eef2ff;
+  border-color: #a5b4fc;
+}
+.data-pickle-close {
+  border: 0;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+  font: 700 18px/1 sans-serif;
+  padding: 2px 4px;
 }`;
 
 const head = d3.select('head');
@@ -1780,13 +1863,179 @@ const fileInput = body.append('input')
     selected_change();                       // refresh the UI
   });
 
+
+function normalizeDataPickleEntry(entry) {
+  const rawPath = typeof entry === 'string'
+    ? entry
+    : entry.path || entry.url || entry.name;
+  if (!rawPath || !rawPath.endsWith('.pickle')) {
+    return null;
+  }
+  const path = rawPath.replace(/^\.\//, '');
+  const name = typeof entry === 'object' && entry.name
+    ? entry.name
+    : path.split('/').pop();
+  const url = typeof entry === 'object' && entry.url
+    ? entry.url
+    : `./${path}`;
+  return {name, path, url};
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {cache: 'no-cache'});
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status}`);
+  }
+  return response.json();
+}
+
+async function discoverDataPickles() {
+  try {
+    const manifest = await fetchJson(DATA_PICKLE_MANIFEST_URL);
+    const entries = Array.isArray(manifest)
+      ? manifest
+      : manifest.files || manifest.pickles || [];
+    const files = entries.map(normalizeDataPickleEntry).filter(Boolean);
+    if (files.length > 0) {
+      return {files, source: 'data/pickles.json'};
+    }
+  } catch (e) {
+    console.log('No data pickle manifest found, trying GitHub API', e);
+  }
+
+  try {
+    const apiEntries = await fetchJson(GITHUB_DATA_API_URL);
+    const files = apiEntries
+      .filter(entry => entry.type === 'file' && entry.name.endsWith('.pickle'))
+      .map(entry => ({
+        name: entry.name,
+        path: entry.path,
+        url: entry.download_url || `./${entry.path}`,
+      }));
+    if (files.length > 0) {
+      return {files, source: 'gh-pages data directory'};
+    }
+  } catch (e) {
+    console.log('Could not query GitHub data directory, using fallback list', e);
+  }
+
+  return {
+    files: FALLBACK_DATA_PICKLES.map(path => ({
+      name: path.split('/').pop(),
+      path,
+      url: `./${path}`,
+    })),
+    source: 'fallback list',
+  };
+}
+
+let dataPickleDiscovery = null;
+function getDataPickleDiscovery() {
+  if (!dataPickleDiscovery) {
+    dataPickleDiscovery = discoverDataPickles();
+  }
+  return dataPickleDiscovery;
+}
+
+async function loadDataPickle(file) {
+  const existingName = snapshot_to_url[file.url];
+  if (existingName) {
+    snapshot_select.node().value = existingName;
+    selected_change();
+    return;
+  }
+
+  const uniqueName = add_snapshot(file.name, unique_name => {
+    dataPickleStatus.text(`Loading ${file.name}...`);
+    fetch(file.url)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`${file.url} returned ${response.status}`);
+        }
+        return response.arrayBuffer();
+      })
+      .then(data => {
+        dataPickleStatus.text(`Loaded ${file.name}`);
+        finished_loading(unique_name, data);
+      })
+      .catch(e => {
+        dataPickleStatus.text(`Failed to load ${file.name}: ${e.message}`);
+        console.error('Failed to load data pickle', file, e);
+      });
+  });
+  snapshot_to_url[file.url] = uniqueName;
+  snapshot_select.node().value = uniqueName;
+  selected_change();
+}
+
+function renderDataPickleList(files, source) {
+  dataPickleList.selectAll('*').remove();
+  if (files.length === 0) {
+    dataPickleStatus.text('No .pickle files found in data/.');
+    return;
+  }
+  dataPickleStatus.text(`${files.length} pickle file${files.length === 1 ? '' : 's'} from ${source}`);
+  dataPickleList
+    .selectAll('button')
+    .data(files)
+    .enter()
+    .append('button')
+    .attr('class', 'data-pickle-item')
+    .attr('type', 'button')
+    .text(file => file.path)
+    .on('click', (_event, file) => loadDataPickle(file));
+}
+
+async function showDataPickles() {
+  dataPickleStatus.text('Scanning data/ for pickle files...');
+  try {
+    const {files, source} = await getDataPickleDiscovery();
+    renderDataPickleList(files, source);
+  } catch (e) {
+    dataPickleStatus.text(`Failed to scan data/: ${e.message}`);
+    console.error('Failed to discover data pickle files', e);
+  }
+}
+
+const dataPicklePanel = body.append('div')
+  .attr('class', 'data-pickle-panel')
+  .attr('data-open', null);
+const dataPickleHeader = dataPicklePanel.append('div')
+  .attr('class', 'data-pickle-header');
+dataPickleHeader.append('span').text('Pickle files in data/');
+dataPickleHeader.append('button')
+  .attr('class', 'data-pickle-close')
+  .attr('type', 'button')
+  .attr('aria-label', 'Close data pickle picker')
+  .text('x')
+  .on('click', () => dataPicklePanel.attr('data-open', null));
+const dataPickleStatus = dataPicklePanel.append('div')
+  .attr('class', 'data-pickle-status')
+  .text('Click refresh to scan data/.');
+const dataPickleList = dataPicklePanel.append('div')
+  .attr('class', 'data-pickle-list');
+
+body.append('button')
+  .attr('class', 'data-pickle-toggle')
+  .attr('type', 'button')
+  .text('Load data pickle')
+  .on('click', () => {
+    const isOpen = dataPicklePanel.attr('data-open') === 'true';
+    dataPicklePanel.attr('data-open', isOpen ? null : 'true');
+    if (!isOpen) {
+      showDataPickles();
+    }
+  });
+
 let next_unique_n = 1;
 function add_snapshot(name, loader) {
-  if (name in snapshot_to_loader) {
-    name = `${name} (${next_unique_n++})`;
+  let unique_name = name;
+  while (unique_name in snapshot_to_loader) {
+    unique_name = `${name} (${next_unique_n++})`;
   }
-  snapshot_select.append('option').text(name);
-  snapshot_to_loader[name] = loader;
+  snapshot_select.append('option').text(unique_name);
+  snapshot_to_loader[unique_name] = loader;
+  return unique_name;
 }
 
 function finished_loading(name, data) {
