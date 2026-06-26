@@ -1171,6 +1171,7 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
       text = `${text}${format_forward_frames(elem.forward_frames)}`;
       return text;
     },
+    elements,
   };
 }
 
