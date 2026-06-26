@@ -1177,6 +1177,25 @@ function create_trace_view(
         a.click();
         URL.revokeObjectURL(url);
       });
+
+    d.append('button')
+      .attr('class', 'alloc-bytes-download')
+      .attr('style', 'margin-left: 10px')
+      .text(`Download alloc bytes JSON`)
+      .on('click', () => {
+        const bytesData = data.elements.map((ev, i) => ({
+          id: i,
+          size_in_bytes: typeof ev.size === 'bigint' ? Number(ev.size) : ev.size,
+        }));
+        const json = JSON.stringify(bytesData, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'alloc_bytes.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      });
   }
 
   d.append('span').text('  |  ');
