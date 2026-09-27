@@ -64,8 +64,9 @@ import {scaleLinear} from "https://cdn.jsdelivr.net/npm/d3-scale@4/+esm";
 import {zoom, zoomIdentity} from "https://cdn.jsdelivr.net/npm/d3-zoom@3/+esm";
 import {brushX} from "https://cdn.jsdelivr.net/npm/d3-brush@3/+esm";
 import {process_alloc_data, isPrivatePoolId, formatSize, formatAddr,
-        elideRepeats, frameFilter, format_user_metadata,
-        format_forward_frames, format_frames} from "./process_alloc_data.js";
+        elideRepeats, frameFilter, format_user_metadata, format_annotations,
+        format_forward_frames, format_frames,
+        resolve_timestep, blocks_at_timestep} from "./process_alloc_data.js";
 
 // Global configuration for trace interaction mode
 // 'hover' = show trace on hover (default)
@@ -113,8 +114,8 @@ function Segment(addr, size, stream, frames, version, user_metadata, segment_poo
   return {addr, size, stream, version, frames, user_metadata, segment_pool_id};
 }
 
-function Block(addr, size, requested_size, frames, free_requested, version, user_metadata) {
-  return {addr, size, requested_size, frames, free_requested, version, user_metadata};
+function Block(addr, size, requested_size, frames, free_requested, version, user_metadata, annotations) {
+  return {addr, size, requested_size, frames, free_requested, version, user_metadata, annotations};
 }
 
 function EventSelector(outer, events, stack_info, memory_view) {
@@ -200,7 +201,11 @@ function eventStack(e, allocated, reserved) {
       reserved,
     )} reserved)\n${event}`;
   }
-  const user_metadata_str = format_user_metadata(e.user_metadata);
+  let user_metadata_str = format_user_metadata(e.user_metadata);
+  if (e.internal_metadata) {
+    const internal_str = `Internal Metadata:\n  ${e.internal_metadata}`;
+    user_metadata_str += (user_metadata_str ? '\n' : '') + internal_str;
+  }
   const frames_str = format_frames(e.frames);
   const forward_frames_str = format_forward_frames(e.forward_frames);
   return event + '\n' + (user_metadata_str ? user_metadata_str + '\n' : '') + frames_str + forward_frames_str;
@@ -304,6 +309,22 @@ function MemoryView(outer, stack_info, snapshot, device) {
         b.version,
         b.user_metadata,
       );
+    }
+  }
+  // Attach post-facto annotations ('annotate' trace events) to the blocks
+  // that are live at snapshot time. Annotations for an address reset when
+  // that address is reused by a new alloc. (Ported from pytorch main.)
+  const annotation_map = {};
+  for (const event of snapshot.device_traces[device] ?? []) {
+    if (event.action === 'alloc') {
+      delete annotation_map[event.addr];
+    } else if (event.action === 'annotate') {
+      (annotation_map[event.addr] ??= []).push(event.user_metadata);
+    }
+  }
+  for (const addr in annotation_map) {
+    if (addr in block_map) {
+      block_map[addr].annotations = annotation_map[addr];
     }
   }
   sorted_segments.sort((x, y) => {
@@ -609,6 +630,7 @@ function MemoryView(outer, stack_info, snapshot, device) {
             requested = ' (block freed but waiting due to record_stream)';
           }
           const user_metadata_str = format_user_metadata(t.user_metadata);
+          const annotations_str = format_annotations(t.annotations);
           const frames_str = format_frames(t.frames);
           const forward_frames_str = format_forward_frames(t.forward_frames);
           let pool_str = '';
@@ -621,6 +643,7 @@ function MemoryView(outer, stack_info, snapshot, device) {
               t.segment.stream
             }${pool_str})\n` +
             (user_metadata_str ? user_metadata_str + '\n' : '') +
+            (annotations_str ? annotations_str + '\n' : '') +
             frames_str +
             forward_frames_str
           );
@@ -834,7 +857,7 @@ function annotate_snapshot(snapshot) {
     snapshot.categories.length > 0 &&
     !snapshot.categories.includes('unknown')
   ) {
-    snapshot.categores.push('unknown');
+    snapshot.categories.push('unknown');
   }
 }
 
@@ -1123,6 +1146,60 @@ function Legend(plot_svg, categories) {
   return {};
 }
 
+// ---------------------------------------------------------------------------
+// Global time -> vertical memory-block query
+// ---------------------------------------------------------------------------
+// create_trace_view() stashes the most recently rendered timeline dataset here
+// so the global query below can answer questions about it without re-running
+// the (expensive) trace replay.
+let last_trace_data = null;
+
+/**
+ * blocksAtTime(time) — return the "vertical" column of memory blocks that are
+ * live at a given point on the most recently rendered Active Memory Timeline.
+ *
+ *   time: a number     -> used directly as a timestep index
+ *         a "N%" string -> that percent of the total timeline period [0, total]
+ *
+ * Returns {timestep, total_timesteps, percent, count, total_size, view, blocks}
+ * where `blocks` is an array of full allocation-info objects (addr, size,
+ * frames, stream, segment_pool_id, user_metadata, annotations, ...), each with
+ * an `info` string (the same text the UI shows on hover), ordered from the
+ * bottom of the memory column upward.
+ */
+function blocksAtTime(time) {
+  if (!last_trace_data) {
+    throw new Error(
+      'blocksAtTime: no timeline rendered yet — load a snapshot and open the ' +
+      '"Active Memory Timeline" (or "Allocated Memory") view first.');
+  }
+  const {data, plot_segments, include_private_inactive} = last_trace_data;
+  const total = Math.max(0, data.max_at_time.length - 1);
+  const timestep = resolve_timestep(time, total);
+  const blocks = blocks_at_timestep(data, timestep).map(b => {
+    if (data.context_for_id && typeof b.elem === 'number') {
+      try { b.info = data.context_for_id(b.elem); } catch (_) { /* ignore */ }
+    }
+    return b;
+  });
+  const total_size = blocks.reduce(
+    (a, b) => a + (typeof b.size === 'bigint' ? Number(b.size) : (b.size || 0)), 0);
+  return {
+    timestep,
+    total_timesteps: total,
+    percent: total > 0 ? (timestep / total) * 100 : 0,
+    count: blocks.length,
+    total_size,
+    view: plot_segments ? 'segments' : (include_private_inactive ? 'allocated+private' : 'active'),
+    blocks,
+  };
+}
+
+// Expose as a true global so it can be called from the dev console or other code.
+if (typeof globalThis !== 'undefined') {
+  globalThis.blocksAtTime = blocksAtTime;
+}
+
 function create_trace_view(
   dst,
   snapshot,
@@ -1133,6 +1210,8 @@ function create_trace_view(
 ) {
   const left_pad = 70;
   const data = process_alloc_data(snapshot, device, plot_segments, max_entries, include_private_inactive);
+  // Publish for the global blocksAtTime() query (see above).
+  last_trace_data = {data, device, plot_segments, include_private_inactive};
   dst.selectAll('svg').remove();
   dst.selectAll('div').remove();
 
@@ -1379,6 +1458,9 @@ function unpickleData(buffer) {
   const LIST = 'l'.charCodeAt(0);
   const DICT = 'd'.charCodeAt(0);
   const SETITEM = 's'.charCodeAt(0);
+  const BYTEARRAY8 = 0x96;
+  const NEXT_BUFFER = 0x97;
+  const READONLY_BUFFER = 0x98;
 
   const scratch_buffer = new ArrayBuffer(8);
   const scratch_bytes = new Uint8Array(scratch_buffer);
@@ -1394,6 +1476,15 @@ function unpickleData(buffer) {
     offset += 4;
     return n;
   }
+  function read_uint64() {
+    const lo = read_uint4();
+    const hi = read_uint4();
+    const n = lo + hi * 0x100000000;
+    if (!Number.isSafeInteger(n)) {
+      throw new Error('Pickle length exceeds safe integer range');
+    }
+    return n;
+  }
   function setitems(d, mark) {
     for (let i = mark; i < stack.length; i += 2) {
       d[stack[i]] = stack[i + 1];
@@ -1407,7 +1498,7 @@ function unpickleData(buffer) {
       case PROTO:
         {
           const version = bytebuffer[offset++];
-          if (version < 2 || version > 4) {
+          if (version < 2 || version > 5) {
             throw new Error(`Unhandled version ${version}`);
           }
         }
@@ -1587,6 +1678,16 @@ function unpickleData(buffer) {
         }
         stack.push(float64[0]);
         break;
+      case BYTEARRAY8:
+        {
+          const n = read_uint64();
+          stack.push(new Uint8Array(buffer.slice(offset, offset + n)));
+          offset += n;
+        }
+        break;
+      case NEXT_BUFFER:
+      case READONLY_BUFFER:
+        throw new Error('Out-of-band buffer opcodes are not supported');
       default:
         throw new Error(`UNKNOWN OPCODE: ${opcode}`);
     }

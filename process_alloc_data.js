@@ -233,6 +233,21 @@ function format_user_metadata(user_metadata) {
 }
 
 /**
+ * Formats post-facto annotations (from torch.cuda.memory._annotate_memory)
+ * attached to an allocation as a display string. Returns '' if none.
+ * (Ported from pytorch/pytorch torch/utils/viz/process_alloc_data.js.)
+ *
+ * @param {string[]|null|undefined} annotations
+ * @returns {string}
+ */
+function format_annotations(annotations) {
+  if (!annotations || annotations.length === 0) {
+    return '';
+  }
+  return 'Annotations:\n' + annotations.map(a => `  ${a}`).join('\n');
+}
+
+/**
  * Formats the forward-pass stack trace (captured via torch.autograd) as a
  * display string showing where a tensor was originally created.
  *
@@ -377,6 +392,78 @@ function format_frames(frames) {
  *   - context_for_id: function that returns a human-readable description
  *     string for a given element index (address, size, stack trace, etc.).
  */
+
+/**
+ * Resolve a user-supplied time into an integer timestep index.
+ *
+ * Accepts either a number (used directly as a timestep on the Active Memory
+ * Timeline) or a percent string matching /^\d+%$/ (e.g. "50%"), which maps to
+ * that fraction of the total timeline period [0, total]. The result is clamped
+ * to [0, total].
+ *
+ * @param {number|string} time
+ * @param {number} total  maximum valid timestep index (max_at_time.length - 1)
+ * @returns {number} integer timestep in [0, total]
+ */
+function resolve_timestep(time, total) {
+  let ts;
+  if (typeof time === 'string') {
+    const m = time.trim().match(/^(\d+(?:\.\d+)?)\s*%$/);
+    if (m) {
+      const pct = Math.min(100, Math.max(0, parseFloat(m[1])));
+      ts = Math.round((pct / 100) * total);
+    } else if (time.trim() !== '' && Number.isFinite(Number(time))) {
+      ts = Math.round(Number(time));
+    } else {
+      throw new Error(`resolve_timestep: unrecognized time "${time}" (use a number or a "N%" string)`);
+    }
+  } else if (typeof time === 'number' && Number.isFinite(time)) {
+    ts = Math.round(time);
+  } else {
+    throw new Error('resolve_timestep: time must be a number or a "N%" string');
+  }
+  return Math.min(total, Math.max(0, ts));
+}
+
+/**
+ * Given a processed trace dataset (the object returned by process_alloc_data)
+ * and a timestep index, return the "vertical" column of blocks that are live
+ * at that timestep — every allocation whose lifetime interval on the Active
+ * Memory Timeline contains the timestep. This is the generalization of the
+ * peak-memory column (peak_alloc_events) to an arbitrary point in time: it
+ * uses the exact same interval test, since block `timesteps[]` values live in
+ * the same integer space as `max_at_time` indices (advance() keeps them in
+ * lockstep).
+ *
+ * @param {object} data  a process_alloc_data(...) result
+ * @param {number} timestep  index in [0, data.max_at_time.length)
+ * @returns {object[]} block info objects (addr, size, frames, stream,
+ *   segment_pool_id, user_metadata, annotations, ...), each with `elem` = its
+ *   element index. Sorted by memory offset (bottom of the column first).
+ */
+function blocks_at_timestep(data, timestep) {
+  const elements = data.elements || [];
+  const out = [];
+  for (const d of data.allocations_over_time) {
+    if (d.elem === 'summarized') continue;
+    const ts = d.timesteps;
+    if (!ts || ts.length < 2) continue;
+    if (ts[0] <= timestep && timestep <= ts[ts.length - 1]) {
+      const ev = elements[d.elem];
+      if (!ev) continue;
+      // shallow copy so callers can't mutate the cached element; carry the
+      // draw offset at this instant (first vertex) for column ordering.
+      out.push(Object.assign({elem: d.elem, offset: d.offsets ? d.offsets[0] : undefined}, ev));
+    }
+  }
+  out.sort((a, b) => {
+    const ao = typeof a.offset === 'bigint' ? Number(a.offset) : (a.offset || 0);
+    const bo = typeof b.offset === 'bigint' ? Number(b.offset) : (b.offset || 0);
+    return ao - bo;
+  });
+  return out;
+}
+
 function process_alloc_data(snapshot, device, plot_segments, max_entries, include_private_inactive = false) {
   const elements = [];
   // Contains two types of blocks
@@ -427,6 +514,14 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
         elements.push(e);
         addr_to_alloc[e.addr] = elements.length - 1;
         actions.push(elements.length - 1);
+        break;
+      case 'annotate':
+        // Post-facto annotation (torch.cuda.memory._annotate_memory):
+        // attach to the live element for this address, if we saw its alloc.
+        if (!plot_segments && e.addr in addr_to_alloc) {
+          const elem = elements[addr_to_alloc[e.addr]];
+          (elem.annotations ??= []).push(e.user_metadata);
+        }
         break;
       case free:
       case free_completed:
@@ -1167,6 +1262,10 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
       if (user_metadata_str) {
         text = `${text}\n${user_metadata_str}`;
       }
+      const annotations_str = format_annotations(elem.annotations);
+      if (annotations_str) {
+        text = `${text}\n${annotations_str}`;
+      }
       text = `${text}\n${format_frames(elem.frames)}`;
       text = `${text}${format_forward_frames(elem.forward_frames)}`;
       return text;
@@ -1176,5 +1275,6 @@ function process_alloc_data(snapshot, device, plot_segments, max_entries, includ
 }
 
 export { process_alloc_data, isPrivatePoolId, formatSize, formatAddr,
-         elideRepeats, frameFilter, format_user_metadata,
-         format_forward_frames, format_frames };
+         elideRepeats, frameFilter, format_user_metadata, format_annotations,
+         format_forward_frames, format_frames,
+         resolve_timestep, blocks_at_timestep };
