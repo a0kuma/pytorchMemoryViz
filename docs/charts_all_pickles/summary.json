@@ -1,0 +1,182 @@
+[
+  {
+    "pickle": "data/memory_reports_20260617155040.pickle",
+    "device": 1,
+    "timesteps": 38355,
+    "peakMiB": 695.6,
+    "corr": 0.9011,
+    "median_abs_MiB": 11.18,
+    "p95_abs_MiB": 140.64
+  },
+  {
+    "pickle": "data/memory_reports_20260617155442.pickle",
+    "device": 1,
+    "timesteps": 38355,
+    "peakMiB": 695.6,
+    "corr": 0.9037,
+    "median_abs_MiB": 11.18,
+    "p95_abs_MiB": 140.07
+  },
+  {
+    "pickle": "data/memory_reports_20260617180818.pickle",
+    "device": 1,
+    "timesteps": 42253,
+    "peakMiB": 1345.4,
+    "corr": 0.9418,
+    "median_abs_MiB": 19.04,
+    "p95_abs_MiB": 267.14
+  },
+  {
+    "pickle": "data/memory_reports_20260617181929.pickle",
+    "device": 1,
+    "timesteps": 17005,
+    "peakMiB": 1345.4,
+    "corr": 0.9514,
+    "median_abs_MiB": 16.73,
+    "p95_abs_MiB": 197.46
+  },
+  {
+    "pickle": "data/memory_reports_20260617183312.pickle",
+    "device": 1,
+    "timesteps": 17002,
+    "peakMiB": 1352.4,
+    "corr": 0.9537,
+    "median_abs_MiB": 17.04,
+    "p95_abs_MiB": 196.48
+  },
+  {
+    "pickle": "data/memory_reports_20260617184444.pickle",
+    "device": 1,
+    "timesteps": 16996,
+    "peakMiB": 1162.7,
+    "corr": 0.9627,
+    "median_abs_MiB": 13.49,
+    "p95_abs_MiB": 190.46
+  },
+  {
+    "pickle": "data/memory_reports_20260617185244.pickle",
+    "device": 1,
+    "timesteps": 15510,
+    "peakMiB": 773.2,
+    "corr": 0.9473,
+    "median_abs_MiB": 8.83,
+    "p95_abs_MiB": 69.84
+  },
+  {
+    "pickle": "data/memory_reports_20260617191330.pickle",
+    "device": 1,
+    "timesteps": 15753,
+    "peakMiB": 974.4,
+    "corr": 0.9674,
+    "median_abs_MiB": 11.07,
+    "p95_abs_MiB": 124.74
+  },
+  {
+    "pickle": "data/memory_reports_20260617192152.pickle",
+    "device": 1,
+    "timesteps": 15747,
+    "peakMiB": 974.4,
+    "corr": 0.9645,
+    "median_abs_MiB": 10.91,
+    "p95_abs_MiB": 132.72
+  },
+  {
+    "pickle": "data/memory_reports_20260617193626.pickle",
+    "device": 1,
+    "timesteps": 15681,
+    "peakMiB": 974.4,
+    "corr": 0.9548,
+    "median_abs_MiB": 11.03,
+    "p95_abs_MiB": 133.12
+  },
+  {
+    "pickle": "data/memory_reports_20260617194637.pickle",
+    "device": 1,
+    "timesteps": 14898,
+    "peakMiB": 393.2,
+    "corr": 0.9987,
+    "median_abs_MiB": 5.18,
+    "p95_abs_MiB": 11.9
+  },
+  {
+    "pickle": "data/memory_reports_20260617195220.pickle",
+    "device": 1,
+    "timesteps": 14967,
+    "peakMiB": 406.9,
+    "corr": 0.9773,
+    "median_abs_MiB": 5.28,
+    "p95_abs_MiB": 13.52
+  },
+  {
+    "pickle": "data/memory_reports_20260617195809.pickle",
+    "device": 1,
+    "timesteps": 14964,
+    "peakMiB": 406.9,
+    "corr": 0.9765,
+    "median_abs_MiB": 5.34,
+    "p95_abs_MiB": 13.47
+  },
+  {
+    "pickle": "data/memory_reports_20260617201717.pickle",
+    "device": 1,
+    "timesteps": 14967,
+    "peakMiB": 407.0,
+    "corr": 0.9776,
+    "median_abs_MiB": 5.09,
+    "p95_abs_MiB": 13.58
+  },
+  {
+    "pickle": "data/memory_reports_20260618180131.pickle",
+    "device": 1,
+    "timesteps": 14976,
+    "peakMiB": 407.0,
+    "corr": 0.9855,
+    "median_abs_MiB": 5.29,
+    "p95_abs_MiB": 13.75
+  },
+  {
+    "pickle": "data/memory_reports_20260618181535.pickle",
+    "device": 1,
+    "timesteps": 14964,
+    "peakMiB": 407.0,
+    "corr": 0.9799,
+    "median_abs_MiB": 5.1,
+    "p95_abs_MiB": 13.01
+  },
+  {
+    "pickle": "data/memory_reports_20260618184111.pickle",
+    "device": 1,
+    "timesteps": 14979,
+    "peakMiB": 407.0,
+    "corr": 0.982,
+    "median_abs_MiB": 5.34,
+    "p95_abs_MiB": 13.53
+  },
+  {
+    "pickle": "data/memory_reports_20260618184421.pickle",
+    "device": 1,
+    "timesteps": 14964,
+    "peakMiB": 407.0,
+    "corr": 0.977,
+    "median_abs_MiB": 5.15,
+    "p95_abs_MiB": 13.29
+  },
+  {
+    "pickle": "data/memory_reports_20260618190921.pickle",
+    "device": 1,
+    "timesteps": 14904,
+    "peakMiB": 393.2,
+    "corr": 0.9986,
+    "median_abs_MiB": 5.15,
+    "p95_abs_MiB": 12.34
+  },
+  {
+    "pickle": "tests/gpu_memory_snapshot-adam.pickle",
+    "device": 0,
+    "timesteps": 32,
+    "peakMiB": 207.7,
+    "corr": 0.9197,
+    "median_abs_MiB": 1.07,
+    "p95_abs_MiB": 38.79
+  }
+]
