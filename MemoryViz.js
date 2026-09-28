@@ -1848,6 +1848,14 @@ for (const x in kinds) {
 }
 const gpu = controls.append('select');
 
+// Download the minimap values (max_at_time = total active memory per timestep)
+// for EVERY GPU/device in the current snapshot, as one wide CSV.
+const dl_minimap = controls.append('button')
+  .attr('id', 'dl-minimap-csv')
+  .attr('style', 'margin-left: 8px')
+  .text('Download minimap CSV (all GPUs)')
+  .on('click', download_minimap_csv);
+
 // Add interaction mode toggle (hover vs click)
 const interactionLabel = body.append('label')
   .attr('style', 'margin-left: 15px; cursor: pointer;');
@@ -1871,6 +1879,44 @@ function unpickle_and_annotate(data) {
   console.log(data);
   annotate_snapshot(data);
   return data;
+}
+
+// Build and download a CSV of the minimap values for all GPUs in the current
+// snapshot. The minimap plots data.max_at_time (total active memory, in bytes,
+// at each timestep of the Active Memory Timeline); this exports that array for
+// every device as columns: timestep, gpu<d>_active_bytes, ...
+function download_minimap_csv() {
+  const f = snapshot_select.node().value;
+  if (!f || !(f in snapshot_cache)) { alert('Load a snapshot first.'); return; }
+  const snapshot = snapshot_cache[f];
+  const has_segments = {};
+  for (const s of snapshot.segments) has_segments[s.device] = true;
+  const devices = [];
+  for (const [i, trace] of snapshot.device_traces.entries()) {
+    if (trace.length > 0 || i in has_segments) devices.push(i);
+  }
+  if (devices.length === 0) { alert('No GPU devices in this snapshot.'); return; }
+  // minimap values per device = the Active Memory Timeline's max_at_time
+  const cols = devices.map(dev => {
+    try { return process_alloc_data(snapshot, dev, false, 15000, false).max_at_time; }
+    catch (e) { console.error('minimap CSV: device', dev, e); return []; }
+  });
+  const maxLen = cols.reduce((m, c) => Math.max(m, c.length), 0);
+  const cell = v => (v == null ? '' : (typeof v === 'bigint' ? v.toString() : String(v)));
+  const lines = new Array(maxLen);
+  for (let t = 0; t < maxLen; t++) {
+    let row = String(t);
+    for (let c = 0; c < cols.length; c++) row += ',' + cell(cols[c][t]);
+    lines[t] = row;
+  }
+  const header = 'timestep,' + devices.map(dev => `gpu${dev}_active_bytes`).join(',');
+  const csv = header + '\n' + lines.join('\n') + (maxLen ? '\n' : '');
+  const base = f.replace(/\.pickle$/i, '').replace(/[^\w.-]+/g, '_');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `minimap_${base}.csv`; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function snapshot_change(f) {
