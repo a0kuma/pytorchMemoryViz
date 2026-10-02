@@ -1225,9 +1225,11 @@ if (typeof globalThis !== 'undefined') {
  *         "max" / "peak" / omitted
  *                              -> the peak-memory timestep (the "find max"
  *                                 result process_alloc_data already computes)
+ *         a negative value (-1 or "-1%")
+ *                              -> remove the line
  *
  * Returns the resolved timestep the line was drawn at (or null if nothing was
- * drawn, e.g. an empty timeline).
+ * drawn, e.g. the line was removed or the timeline is empty).
  */
 function drawRedLine(time) {
   if (!last_trace_data || !last_trace_data.plot) {
@@ -1237,6 +1239,13 @@ function drawRedLine(time) {
   }
   const {data, plot} = last_trace_data;
   const total = Math.max(0, data.max_at_time.length - 1);
+  // A negative value (-1 or "-1%") removes the line.
+  const numeric = typeof time === 'string'
+    ? parseFloat(time.trim().replace(/%$/, ''))
+    : time;
+  if (typeof numeric === 'number' && numeric < 0) {
+    return plot.draw_red_line(null);
+  }
   let timestep;
   if (time == null || time === 'max' || time === 'peak') {
     timestep = data.peak_timestep ?? 0;
