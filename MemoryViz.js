@@ -1938,6 +1938,21 @@ const dl_minimap = controls.append('button')
   .text('Download minimap CSV (all GPUs)')
   .on('click', download_minimap_csv);
 
+// Sweep blocksAtTime() across 0..100% in 0.01% steps and download the live
+// "vertical" total_size at each percentage as a 2-column CSV. The second
+// button min-max normalizes the total_size column to 0..100.
+const dl_blocks_total = controls.append('button')
+  .attr('id', 'dl-blocks-total-csv')
+  .attr('style', 'margin-left: 8px')
+  .text('Download blocksAtTime total_size CSV')
+  .on('click', () => download_blocks_total_csv(false));
+
+const dl_blocks_total_norm = controls.append('button')
+  .attr('id', 'dl-blocks-total-norm-csv')
+  .attr('style', 'margin-left: 8px')
+  .text('Download blocksAtTime total_size CSV (0-100 normalized)')
+  .on('click', () => download_blocks_total_csv(true));
+
 // Add interaction mode toggle (hover vs click)
 const interactionLabel = body.append('label')
   .attr('style', 'margin-left: 15px; cursor: pointer;');
@@ -1998,6 +2013,53 @@ function download_minimap_csv() {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = `minimap_${base}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Sweep the global blocksAtTime() query from 0% to 100% in 0.01% steps and
+// collect the total_size (summed live-block bytes) of the vertical column at
+// each percentage. Returns an array of [percent, total_size] pairs, or null if
+// no timeline is rendered yet (blocksAtTime throws in that case).
+function collect_blocks_total_size() {
+  if (typeof blocksAtTime !== 'function') { alert('blocksAtTime is not available.'); return null; }
+  const rows = [];
+  for (let i = 0; i <= 10000; i++) {
+    const pct = i / 100; // 0.00 .. 100.00, step 0.01
+    try {
+      rows.push([pct, blocksAtTime(`${pct}%`).total_size]);
+    } catch (e) {
+      alert('blocksAtTime failed — load a snapshot and open the "Active Memory '
+          + 'Timeline" (or "Allocated Memory") view first.');
+      console.error('blocksAtTime sweep:', e);
+      return null;
+    }
+  }
+  return rows;
+}
+
+// Download the 0..100% total_size sweep as CSV. col1 = percentage, col2 =
+// total_size. When normalize is true, col2 is min-max scaled to [0, 100].
+function download_blocks_total_csv(normalize) {
+  const rows = collect_blocks_total_size();
+  if (!rows) return;
+  let col2 = rows.map(r => r[1]);
+  let header = 'percent,total_size';
+  if (normalize) {
+    let min = Infinity, max = -Infinity;
+    for (const v of col2) { if (v < min) min = v; if (v > max) max = v; }
+    const span = max - min;
+    col2 = col2.map(v => (span > 0 ? ((v - min) / span) * 100 : 0));
+    header = 'percent,total_size_normalized';
+  }
+  const lines = rows.map((r, i) => `${r[0].toFixed(2)},${col2[i]}`);
+  const csv = header + '\n' + lines.join('\n') + '\n';
+  const f = snapshot_select.node().value || 'snapshot';
+  const base = f.replace(/\.pickle$/i, '').replace(/[^\w.-]+/g, '_');
+  const name = (normalize ? 'blocks_total_size_norm_' : 'blocks_total_size_') + base + '.csv';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
 }
 
