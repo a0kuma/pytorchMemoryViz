@@ -928,22 +928,33 @@ function MemoryPlot(
     .attr('stroke-width', d => typeof d.elem === 'string' && d.elem.startsWith('pool:') ? 3 : null)
     .attr('vector-effect', d => typeof d.elem === 'string' && d.elem.startsWith('pool:') ? 'non-scaling-stroke' : null);
 
-  // Restored from main: red dashed vertical line marking the timestep where
-  // active memory peaked. Uses the peak_timestep field that PR #4 brought
-  // back to process_alloc_data's return value.
-  if (data.peak_timestep != null && data.max_at_time.length > 0) {
+  // Restored from main: red dashed vertical line marking a timestep on the
+  // timeline. Factored out of the inline peak-only draw so it can be invoked
+  // for an arbitrary timestep (percent, time, or the "find max" peak) via the
+  // global drawRedLine() below. Removes any previous line before drawing.
+  function draw_red_line(timestep) {
+    scrub_group.selectAll('line.peak-memory-line').remove();
+    if (timestep == null || !Number.isFinite(timestep) || data.max_at_time.length === 0) {
+      return null;
+    }
     scrub_group
       .append('line')
       .attr('class', 'peak-memory-line')
-      .attr('x1', xscale(data.peak_timestep))
+      .attr('x1', xscale(timestep))
       .attr('y1', 0)
-      .attr('x2', xscale(data.peak_timestep))
+      .attr('x2', xscale(timestep))
       .attr('y2', plot_height)
       .attr('stroke', 'red')
       .attr('stroke-width', 2)
       .attr('vector-effect', 'non-scaling-stroke')
       .attr('stroke-dasharray', '6,3')
       .attr('pointer-events', 'none');
+    return timestep;
+  }
+
+  // Draw the default peak line (the "find max" result from process_alloc_data).
+  if (data.peak_timestep != null) {
+    draw_red_line(data.peak_timestep);
   }
 
   const axis = plot_coordinate_space.append('g').call(yaxis);
@@ -958,6 +969,10 @@ function MemoryPlot(
   plot_outer.call(thezoom);
 
   return {
+    // Expose the red-line drawer and geometry so the global drawRedLine() can
+    // retarget the line on the most recently rendered timeline.
+    draw_red_line,
+    max_timestep,
     select_window: (stepbegin, stepend, max) => {
       const begin = xscale(stepbegin);
       const size = xscale(stepend) - xscale(stepbegin);
@@ -1200,6 +1215,42 @@ if (typeof globalThis !== 'undefined') {
   globalThis.blocksAtTime = blocksAtTime;
 }
 
+/**
+ * drawRedLine(time) — draw (or move) the red dashed vertical line on the most
+ * recently rendered Active Memory Timeline. Mirrors blocksAtTime()'s argument
+ * handling so the line and the block query can be driven by the same value.
+ *
+ *   time: a number            -> used directly as a timestep index
+ *         a "N%" string        -> that percent of the total timeline period
+ *         "max" / "peak" / omitted
+ *                              -> the peak-memory timestep (the "find max"
+ *                                 result process_alloc_data already computes)
+ *
+ * Returns the resolved timestep the line was drawn at (or null if nothing was
+ * drawn, e.g. an empty timeline).
+ */
+function drawRedLine(time) {
+  if (!last_trace_data || !last_trace_data.plot) {
+    throw new Error(
+      'drawRedLine: no timeline rendered yet — load a snapshot and open the ' +
+      '"Active Memory Timeline" (or "Allocated Memory") view first.');
+  }
+  const {data, plot} = last_trace_data;
+  const total = Math.max(0, data.max_at_time.length - 1);
+  let timestep;
+  if (time == null || time === 'max' || time === 'peak') {
+    timestep = data.peak_timestep ?? 0;
+  } else {
+    timestep = resolve_timestep(time, total);
+  }
+  return plot.draw_red_line(timestep);
+}
+
+// Expose as a true global so it can be called from the dev console or other code.
+if (typeof globalThis !== 'undefined') {
+  globalThis.drawRedLine = drawRedLine;
+}
+
 function create_trace_view(
   dst,
   snapshot,
@@ -1308,6 +1359,8 @@ function create_trace_view(
     .attr('style', 'grid-column: 1; grid-row: 1; width: 100%; height: 100%;');
 
   const plot = MemoryPlot(plot_svg, data, left_pad, 1024, 576);
+  // Publish the live plot so the global drawRedLine() can draw onto it.
+  if (last_trace_data) last_trace_data.plot = plot;
 
   if (snapshot.categories.length !== 0) {
     Legend(plot_svg.append('g'), snapshot.categories);
