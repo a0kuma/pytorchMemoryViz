@@ -928,28 +928,30 @@ function MemoryPlot(
     .attr('stroke-width', d => typeof d.elem === 'string' && d.elem.startsWith('pool:') ? 3 : null)
     .attr('vector-effect', d => typeof d.elem === 'string' && d.elem.startsWith('pool:') ? 'non-scaling-stroke' : null);
 
-  // Restored from main: red dashed vertical line marking a timestep on the
-  // timeline. Factored out of the inline peak-only draw so it can be invoked
-  // for an arbitrary timestep (percent, time, or the "find max" peak) via the
-  // global drawRedLine() below. Removes any previous line before drawing.
-  function draw_red_line(timestep) {
+  // Restored from main: red dashed vertical line on the timeline. Factored out
+  // of the inline peak-only draw so it can be invoked for an arbitrary axis
+  // position (percent, time, or the "find max" peak) via the global
+  // drawRedLine() below. `pos` is an exact, possibly fractional position in the
+  // xscale domain [0, max_timestep] — it is NOT snapped to an integer timestep.
+  // Removes any previous line before drawing.
+  function draw_red_line(pos) {
     scrub_group.selectAll('line.peak-memory-line').remove();
-    if (timestep == null || !Number.isFinite(timestep) || data.max_at_time.length === 0) {
+    if (pos == null || !Number.isFinite(pos) || data.max_at_time.length === 0) {
       return null;
     }
     scrub_group
       .append('line')
       .attr('class', 'peak-memory-line')
-      .attr('x1', xscale(timestep))
+      .attr('x1', xscale(pos))
       .attr('y1', 0)
-      .attr('x2', xscale(timestep))
+      .attr('x2', xscale(pos))
       .attr('y2', plot_height)
       .attr('stroke', 'red')
       .attr('stroke-width', 2)
       .attr('vector-effect', 'non-scaling-stroke')
       .attr('stroke-dasharray', '6,3')
       .attr('pointer-events', 'none');
-    return timestep;
+    return pos;
   }
 
   // Draw the default peak line (the "find max" result from process_alloc_data).
@@ -1217,19 +1219,24 @@ if (typeof globalThis !== 'undefined') {
 
 /**
  * drawRedLine(time) — draw (or move) the red dashed vertical line on the most
- * recently rendered Active Memory Timeline. Mirrors blocksAtTime()'s argument
- * handling so the line and the block query can be driven by the same value.
+ * recently rendered Active Memory Timeline at the EXACT requested position.
+ * Unlike blocksAtTime() (which must snap to a discrete timestep to look up the
+ * blocks live there), the line is purely visual, so it is drawn at the exact
+ * fractional position — no rounding to the nearest integer timestep.
  *
- *   time: a number            -> used directly as a timestep index
- *         a "N%" string        -> that percent of the total timeline period
+ *   time: a "N%" string        -> exactly N% of the plot width (0% = left edge,
+ *                                 100% = right edge). Fractions allowed, e.g.
+ *                                 "13.5%".
+ *         a number             -> an exact (possibly fractional) timestep on the
+ *                                 axis [0, max_timestep], clamped to that range.
  *         "max" / "peak" / omitted
  *                              -> the peak-memory timestep (the "find max"
  *                                 result process_alloc_data already computes)
  *         a negative value (-1 or "-1%")
  *                              -> remove the line
  *
- * Returns the resolved timestep the line was drawn at (or null if nothing was
- * drawn, e.g. the line was removed or the timeline is empty).
+ * Returns the exact axis position the line was drawn at (null if removed or the
+ * timeline is empty).
  */
 function drawRedLine(time) {
   if (!last_trace_data || !last_trace_data.plot) {
@@ -1238,21 +1245,34 @@ function drawRedLine(time) {
       '"Active Memory Timeline" (or "Allocated Memory") view first.');
   }
   const {data, plot} = last_trace_data;
-  const total = Math.max(0, data.max_at_time.length - 1);
+  // max_timestep is the right edge of the plot in axis units; xscale maps
+  // [0, max_timestep] -> [0, plot_width], so a percent of max_timestep is
+  // exactly that percent of the plot width.
+  const max_timestep = plot.max_timestep ?? data.max_at_time.length;
   // A negative value (-1 or "-1%") removes the line.
   const numeric = typeof time === 'string'
-    ? parseFloat(time.trim().replace(/%$/, ''))
+    ? parseFloat(time.trim().replace(/%\s*$/, ''))
     : time;
   if (typeof numeric === 'number' && numeric < 0) {
     return plot.draw_red_line(null);
   }
-  let timestep;
+  let pos;
   if (time == null || time === 'max' || time === 'peak') {
-    timestep = data.peak_timestep ?? 0;
+    // Peak is an integer timestep index; it is already exact.
+    pos = data.peak_timestep ?? 0;
+  } else if (typeof time === 'string' && /%\s*$/.test(time.trim())) {
+    // Exact percent of the plot width — no snapping to an integer timestep.
+    const pct = Math.min(100, Math.max(0, parseFloat(time)));
+    pos = (pct / 100) * max_timestep;
   } else {
-    timestep = resolve_timestep(time, total);
+    // Exact (possibly fractional) timestep, clamped to the axis.
+    const t = Number(time);
+    if (!Number.isFinite(t)) {
+      throw new Error(`drawRedLine: unrecognized time "${time}" (use a number, a "N%" string, or "max")`);
+    }
+    pos = Math.min(max_timestep, Math.max(0, t));
   }
-  return plot.draw_red_line(timestep);
+  return plot.draw_red_line(pos);
 }
 
 // Expose as a true global so it can be called from the dev console or other code.
