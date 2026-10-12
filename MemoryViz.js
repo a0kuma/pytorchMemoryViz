@@ -1280,6 +1280,68 @@ if (typeof globalThis !== 'undefined') {
   globalThis.drawRedLine = drawRedLine;
 }
 
+/**
+ * splitBySize(size) — locate the forward/backward boundary on the most recently
+ * rendered Active Memory Timeline.
+ *
+ * At that boundary two blocks of the SAME `size` (bytes) are created and then
+ * kept alive to the very end of the trace: the network output `y` and the loss
+ * gradient (`ones_like(y)`). They are allocated back-to-back, so they are also
+ * contiguous in memory. This function finds that contiguous, live-to-the-end
+ * pair and returns the X position of the split.
+ *
+ *   size: a number — the block size in BYTES (e.g. the output tensor's size).
+ *
+ * Returns {timestep, total_timesteps, percent, size, addrs} (null if not found)
+ * where `percent` is the split's position as a percent of the plot width — the
+ * same convention drawRedLine()/blocksAtTime() use for a "N%" argument.
+ */
+function splitBySize(size) {
+  if (!last_trace_data) {
+    throw new Error(
+      'splitBySize: no timeline rendered yet — load a snapshot and open the ' +
+      '"Active Memory Timeline" view first.');
+  }
+  const {data} = last_trace_data;
+  const total = Math.max(0, data.max_at_time.length - 1);
+  const elements = data.elements || [];
+  const asNum = v => (typeof v === 'bigint' ? Number(v) : v);
+  const big = v => (typeof v === 'bigint' ? v : BigInt(Math.round(Number(v))));
+
+  // live-to-the-end blocks whose byte size equals `size`
+  const live = [];
+  for (const d of data.allocations_over_time) {
+    if (d.elem === 'summarized') continue;
+    const ts = d.timesteps;
+    if (!ts || ts.length < 2) continue;
+    const ev = elements[d.elem];
+    if (!ev || asNum(ev.size) !== size) continue;
+    if (ts[ts.length - 1] >= total) live.push({start: ts[0], addr: ev.addr, size: asNum(ev.size)});
+  }
+  if (live.length < 2) return null;
+  // the output y and the loss grad sit in adjacent allocator slots, so take the
+  // pair that is closest together in memory (the allocator rounds sizes up, so
+  // "adjacent" is the smallest address gap, not byte-contiguity).
+  live.sort((a, b) => (big(a.addr) < big(b.addr) ? -1 : big(a.addr) > big(b.addr) ? 1 : 0));
+  let pair = [live[0], live[1]], bestGap = big(live[1].addr) - big(live[0].addr);
+  for (let i = 1; i + 1 < live.length; i++) {
+    const gap = big(live[i + 1].addr) - big(live[i].addr);
+    if (gap < bestGap) { bestGap = gap; pair = [live[i], live[i + 1]]; }
+  }
+
+  const timestep = Math.max(pair[0].start, pair[1].start);   // backward has begun once both exist
+  return {
+    timestep,
+    total_timesteps: total,
+    percent: total > 0 ? (timestep / total) * 100 : 0,
+    size,
+    addrs: pair.map(p => '0x' + big(p.addr).toString(16)),
+  };
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.splitBySize = splitBySize;
+}
+
 function create_trace_view(
   dst,
   snapshot,
