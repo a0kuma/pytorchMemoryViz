@@ -1308,33 +1308,80 @@ function splitBySize(size) {
   const asNum = v => (typeof v === 'bigint' ? Number(v) : v);
   const big = v => (typeof v === 'bigint' ? v : BigInt(Math.round(Number(v))));
 
-  // live-to-the-end blocks whose byte size equals `size`
-  const live = [];
+  // The weights (and x) are the initial allocation burst, all born BEFORE the
+  // first free; the output y (forward end) and its loss grad (backward start)
+  // are born after it. Use the first-free timestep to separate them, so a pair
+  // of equal-size WEIGHTS can never be mistaken for the y｜loss pair.
+  let firstFree = Infinity;
   for (const d of data.allocations_over_time) {
     if (d.elem === 'summarized') continue;
     const ts = d.timesteps;
     if (!ts || ts.length < 2) continue;
-    const ev = elements[d.elem];
-    if (!ev || asNum(ev.size) !== size) continue;
-    if (ts[ts.length - 1] >= total) live.push({start: ts[0], addr: ev.addr, size: asNum(ev.size)});
+    const freeT = ts[ts.length - 1];
+    if (freeT < total) firstFree = Math.min(firstFree, freeT);
   }
-  if (live.length < 2) return null;
+  if (!Number.isFinite(firstFree)) firstFree = 0;
+
+  // live-to-the-end blocks born after the weight burst (optionally of byte size `want`)
+  const collect = want => {
+    const live = [];
+    for (const d of data.allocations_over_time) {
+      if (d.elem === 'summarized') continue;
+      const ts = d.timesteps;
+      if (!ts || ts.length < 2) continue;
+      const ev = elements[d.elem];
+      if (!ev) continue;
+      const sz = asNum(ev.size);
+      if (want != null && sz !== want) continue;
+      if (ts[0] < firstFree) continue;                         // skip the initial weight / x burst
+      if (ts[ts.length - 1] >= total) live.push({start: ts[0], addr: ev.addr, size: sz});
+    }
+    return live;
+  };
   // the output y and the loss grad sit in adjacent allocator slots, so take the
-  // pair that is closest together in memory (the allocator rounds sizes up, so
+  // same-size pair closest together in memory (the allocator rounds sizes up, so
   // "adjacent" is the smallest address gap, not byte-contiguity).
-  live.sort((a, b) => (big(a.addr) < big(b.addr) ? -1 : big(a.addr) > big(b.addr) ? 1 : 0));
-  let pair = [live[0], live[1]], bestGap = big(live[1].addr) - big(live[0].addr);
-  for (let i = 1; i + 1 < live.length; i++) {
-    const gap = big(live[i + 1].addr) - big(live[i].addr);
-    if (gap < bestGap) { bestGap = gap; pair = [live[i], live[i + 1]]; }
+  const closestPair = live => {
+    live.sort((a, b) => (a.size - b.size) || (big(a.addr) < big(b.addr) ? -1 : big(a.addr) > big(b.addr) ? 1 : 0));
+    let pair = null, bestGap = null;
+    for (let i = 0; i + 1 < live.length; i++) {
+      if (live[i].size !== live[i + 1].size) continue;        // y and its loss grad are the SAME size
+      const gap = big(live[i + 1].addr) - big(live[i].addr);
+      if (bestGap === null || gap < bestGap) { bestGap = gap; pair = [live[i], live[i + 1]]; }
+    }
+    return pair;
+  };
+
+  let pair = null, auto = false;
+  if (size != null && Number.isFinite(size) && size > 0) pair = closestPair(collect(size));
+  if (!pair) {
+    // AUTO-DETECT the output size: among the kept-to-end blocks, the weights are
+    // born at t=0; the output y (born at the end of the forward) and its loss grad
+    // (born at the start of the backward) are the EARLIEST-born same-size adjacent
+    // pair that is NOT a weight. That birth time is the FWD｜BWD split, whatever
+    // the output size happens to be (e.g. 8 B when |y|=2, not the default 20 B).
+    auto = true;
+    const live = collect(null);                              // already excludes the weight burst
+    live.sort((a, b) => (a.size - b.size) || (big(a.addr) < big(b.addr) ? -1 : big(a.addr) > big(b.addr) ? 1 : 0));
+    let best = null;
+    for (let i = 0; i + 1 < live.length; i++) {
+      if (live[i].size !== live[i + 1].size) continue;
+      const gap = big(live[i + 1].addr) - big(live[i].addr);
+      const birth = Math.max(live[i].start, live[i + 1].start);
+      if (!best || birth < best.birth || (birth === best.birth && gap < best.gap))
+        best = {pair: [live[i], live[i + 1]], birth, gap};
+    }
+    pair = best && best.pair;
   }
+  if (!pair) return null;
 
   const timestep = Math.max(pair[0].start, pair[1].start);   // backward has begun once both exist
   return {
     timestep,
     total_timesteps: total,
     percent: total > 0 ? (timestep / total) * 100 : 0,
-    size,
+    size: pair[0].size,
+    auto,
     addrs: pair.map(p => '0x' + big(p.addr).toString(16)),
   };
 }
